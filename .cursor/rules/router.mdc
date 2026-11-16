@@ -1,0 +1,8 @@
+---
+description: Rules for editing the router
+globs: ["src/agent/router.py", "tests/test_router.py"]
+alwaysApply: false
+---
+- Write the failing test first.
+- Router functions stay pure: no network, no file IO.
+- Every new rule needs a one-line reason string that ends up in the log.

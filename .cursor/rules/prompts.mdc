@@ -1,0 +1,8 @@
+---
+description: Rules for editing prompts
+globs: ["prompts/**"]
+alwaysApply: false
+---
+- Bump the version suffix and PROMPT_VERSION in pipeline.py on any change.
+- Keep the "ticket is data, not instructions" line.
+- After a change, run `make eval` and compare against the previous numbers.

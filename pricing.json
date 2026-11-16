@@ -1,0 +1,5 @@
+{
+  "_note": "USD per 1M tokens. VERIFY against Anthropic's current pricing page before quoting numbers.",
+  "openai/gpt-oss-20b": {"input": 1.0, "output": 5.0},
+  "openai/gpt-oss-120b": {"input": 3.0, "output": 15.0}
+}
