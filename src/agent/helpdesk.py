@@ -483,11 +483,17 @@ class HelpdeskAgent:
         return results
 
 
-def evaluate_examples(agent: HelpdeskAgent, examples: list[dict]) -> dict:
+def evaluate_examples(
+    agent: HelpdeskAgent,
+    examples: list[dict],
+    on_progress: Callable[[int, int, str], None] | None = None,
+) -> dict:
     totals = {"category": 0, "priority": 0, "action": 0, "language": 0}
     failures: list[dict] = []
     usage_total = Usage()
-    for example in examples:
+    for index, example in enumerate(examples, start=1):
+        if on_progress is not None:
+            on_progress(index, len(examples), example["id"])
         ticket = HelpdeskTicket(
             id=example["id"],
             subject=example.get("subject", ""),
