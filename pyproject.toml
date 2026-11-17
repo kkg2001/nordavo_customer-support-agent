@@ -2,7 +2,7 @@
 name = "ticket-agent"
 version = "0.1.0"
 requires-python = ">=3.10"
-dependencies = ["anthropic>=0.40", "pydantic>=2.6", "python-dotenv>=1.0","groq>=0.11"]
+dependencies = ["groq>=0.11", "pydantic>=2.6", "python-dotenv>=1.0", "requests>=2.31"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]

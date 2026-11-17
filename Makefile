@@ -1,9 +1,9 @@
 .PHONY: install run eval test
 install:
-	pip install -e ".[dev]"
+	py -m pip install -e ".[dev]"
 run:
-	python -m agent.cli --csv data/tickets.csv --out logs/run.jsonl
+	py -m agent.helpdesk_cli
 eval:
-	python eval/run_eval.py
+	py -m agent.helpdesk_cli --eval-examples
 test:
-	pytest -q
+	py -m pytest -q
