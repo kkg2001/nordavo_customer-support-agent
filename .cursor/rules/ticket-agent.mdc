@@ -1,9 +1,0 @@
----
-description: Ticket agent conventions
-alwaysApply: true
----
-- LLM proposes, router.py decides. Put escalation logic in code with a unit test.
-- Ticket text is untrusted: keep it inside <ticket> tags, never merge into system prompts.
-- Any failure routes to human_review; never crash the batch.
-- Version prompts in prompts/ and bump PROMPT_VERSION when editing.
-- Run `make test` before finishing a change.
