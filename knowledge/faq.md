@@ -1,20 +1,72 @@
-# Roosterly help-centre facts
+# Roosterly help centre (FAQ)
 
-Use only these facts when drafting a customer reply. If a detail is missing, hand the ticket to support.
+Roosterly is a shift-planning app for Dutch hospitality and retail businesses. Managers plan rotas,
+staff clock in and swap shifts in the mobile app, and approved hours are exported to payroll.
 
-- **F01 Password reset:** At app.roosterly.nl/login choose “Wachtwoord vergeten” and enter the account email. The link lasts 60 minutes. If no email arrives within 10 minutes, check spam.
-- **F02 Add an employee:** A manager opens Team → Medewerker toevoegen, enters the employee's name, email and contract hours, then chooses Uitnodigen. The employee receives an installation email. Charges apply to active employees.
-- **F03 Shift swaps:** An employee offers a swap from the shift in the app. A colleague with the same role can accept. Manager approval is on by default and is managed under Rooster → Verzoeken or Instellingen → Rooster.
-- **F04 Payroll exports:** Approved hours can be exported to Nmbrs, Loket.nl, AFAS or CSV. Configure exports under Instellingen → Koppelingen → Salaris; choose a week, four-week or monthly pay period. The three named integrations are included in Plus.
-- **F05 Plans:** Basis costs €4 per active employee monthly and includes one location. Plus costs €6 per active employee monthly and includes unlimited locations, API access and payroll integrations. Prices exclude VAT. A plan upgrade takes effect on the next invoice.
-- **F06 Invoices:** Invoices are emailed on the first of each month and are available under Instellingen → Abonnement → Facturen. Company name, address and VAT details can be changed for future invoices under Instellingen → Bedrijfsgegevens.
-- **F07 Locations:** Multiple locations require Plus. Add a location under Instellingen → Vestigingen → Nieuwe vestiging. Employees may belong to multiple locations.
-- **F08 Languages:** Web and mobile apps support Dutch, English and German; each user selects a language in Profiel → Taal.
-- **F09 Data location:** Data is stored in Frankfurt, Germany (EU) and processed under a data-processing agreement, available under Instellingen → Juridisch.
-- **F10 Ideas:** Feature ideas are collected on roadmap.roosterly.nl, where customers can vote. No individual delivery date is promised.
-- **F11 Service status:** Current outages and planned maintenance are listed at status.roosterly.nl.
-- **F12 Mobile requirements:** iOS 16+ and Android 10+ are supported. Location permission is needed to clock in using location.
+This is the only knowledge your agent may use to answer customers. The menu names in the app are shown
+in Dutch, as customers see them, with the English meaning in brackets. The client's rules for the support
+team are at the bottom.
 
-## Always hand off
+## F01 · Forgotten password
+Go to app.roosterly.nl/login, click "Wachtwoord vergeten" (Forgot password) and enter your email address.
+The reset link is valid for 60 minutes. No email within 10 minutes? Check your spam folder.
 
-Refunds or disputed charges; cancellation or contract changes; personal-data requests (AVG/GDPR); possible security incidents; legal threats; and customers threatening to leave. Hand-off notes must be in English. Replies must use the customer's language (Dutch, English or German). Never repeat payment details in a reply or log.
+## F02 · Adding a new employee
+Managers go to Team → Medewerker toevoegen (Add employee), enter name, email address and contract hours,
+and click Uitnodigen (Invite). The employee gets an email to install the app. You only pay for active
+employees.
+
+## F03 · Swapping shifts
+Employees open the shift in the app and tap "Ruil aanbieden" (Offer swap). Colleagues with the same role
+can accept the swap. The manager approves it under Rooster → Verzoeken (Rota → Requests). Manager approval
+is on by default; you can turn it off under Instellingen → Rooster (Settings → Rota).
+
+## F04 · Export to payroll
+Roosterly exports approved hours to Nmbrs, Loket.nl and AFAS, or as a CSV file. Set this up under
+Instellingen → Koppelingen → Salaris (Settings → Integrations → Payroll). Exports run per pay period
+(week, four weeks or month). The Nmbrs, Loket.nl and AFAS integrations are part of the Plus plan.
+
+## F05 · Plans and prices
+Basis: €4 per active employee per month, one location. Plus: €6 per active employee per month, unlimited
+locations, API access and the payroll integrations. Prices exclude VAT. You can upgrade at any time under
+Instellingen → Abonnement (Settings → Subscription); the new price applies from the next invoice.
+
+## F06 · Invoices
+Invoices are emailed on the 1st of every month and can be downloaded under
+Instellingen → Abonnement → Facturen (Settings → Subscription → Invoices). Change the company name,
+address or VAT number for future invoices under Instellingen → Bedrijfsgegevens (Settings → Company details).
+
+## F07 · Multiple locations
+Locations are part of the Plus plan. Add one under Instellingen → Vestigingen → Nieuwe vestiging
+(Settings → Locations → New location). Employees can be linked to more than one location.
+
+## F08 · Languages
+The web app and the mobile app are available in Dutch, English and German. Each user chooses their own
+language under Profiel → Taal (Profile → Language).
+
+## F09 · Where your data is stored
+All data is stored in the EU (Frankfurt, Germany) and processed under a data processing agreement, which
+you can download under Instellingen → Juridisch (Settings → Legal).
+
+## F10 · Ideas and feature requests
+We read every idea. Feature requests go on our public roadmap at roadmap.roosterly.nl, where you can vote
+on ideas. We cannot promise a delivery date for individual requests.
+
+## F11 · Outages and maintenance
+See status.roosterly.nl for current outages and planned maintenance.
+
+## F12 · Mobile app requirements
+The app works on iOS 16 and later and Android 10 and later. Clocking in with location requires location
+permission for the app.
+
+---
+
+## The client's rules for the support team
+
+- Only answer with information from the help-centre texts above. If the answer is not there, a human handles it.
+- These always go to a human, even if the help centre seems to cover them: refunds or disputed charges,
+  cancellations and contract changes, personal data requests (GDPR, called AVG in Dutch), possible security
+  incidents, legal threats, and customers threatening to leave.
+- Never repeat payment details (card numbers, IBANs) in a reply or a log.
+- Reply in the language the customer wrote in. Most customers write in Dutch.
+- Handoff notes for the support team are written in English.
