@@ -3,6 +3,8 @@ import json
 import os
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Type, TypeVar
 
 import groq
@@ -46,14 +48,33 @@ def _create(client: Groq, model: str, system: str, user: str, schema: Type[BaseM
     )
 
 
+def _rate_limit_delay(error: Exception, attempt: int) -> float:
+    response = getattr(error, "response", None)
+    headers = getattr(response, "headers", None)
+    retry_after = headers.get("retry-after") if headers is not None else None
+    if retry_after is not None:
+        try:
+            return max(0.0, float(retry_after))
+        except (TypeError, ValueError):
+            try:
+                retry_at = parsedate_to_datetime(str(retry_after))
+            except (TypeError, ValueError, OverflowError):
+                retry_at = None
+            if retry_at is not None:
+                if retry_at.tzinfo is None:
+                    retry_at = retry_at.replace(tzinfo=timezone.utc)
+                return max(0.0, (retry_at - datetime.now(timezone.utc)).total_seconds())
+    return min(2 ** attempt * 2, 30)
+
+
 def _with_backoff(fn):
     for attempt in range(MAX_RATE_LIMIT_RETRIES + 1):
         try:
             return fn()
-        except groq.RateLimitError:
+        except groq.RateLimitError as exc:
             if attempt == MAX_RATE_LIMIT_RETRIES:
                 raise
-            time.sleep(min(2 ** attempt * 2, 30))
+            time.sleep(_rate_limit_delay(exc, attempt))
 
 
 def call_structured(system: str, user: str, schema: Type[T], model: str = DEFAULT_MODEL,

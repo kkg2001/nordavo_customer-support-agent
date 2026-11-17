@@ -11,3 +11,11 @@ def cost_usd(model: str, usage: Usage) -> float:
     if not p:
         return 0.0
     return (usage.input_tokens * p["input"] + usage.output_tokens * p["output"]) / 1_000_000
+
+
+def known_cost_usd(model: str, usage: Usage) -> float | None:
+    prices = json.loads(_PRICING.read_text())
+    p = prices.get(model)
+    if p is None:
+        return None
+    return (usage.input_tokens * p["input"] + usage.output_tokens * p["output"]) / 1_000_000
