@@ -12,6 +12,7 @@ py -m agent.helpdesk_cli --api-status
 py scripts/list_tickets.py
 py scripts/list_tickets.py --status all
 py -m agent.helpdesk_cli --ticket-id T005
+py -m agent.helpdesk_cli --show-examples  # print the ten labelled examples (GET only)
 py -m agent.helpdesk_cli                    # all open tickets; dry run
 py -m agent.helpdesk_cli --limit 1          # one-ticket demo; dry run
 py -m agent.helpdesk_cli --limit 1 --submit # post for first open ticket

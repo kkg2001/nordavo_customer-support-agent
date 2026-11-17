@@ -125,10 +125,15 @@ def main() -> None:
         "--ticket-id",
         help="Fetch and display one ticket and its handling details (read-only).",
     )
+    inspection.add_argument(
+        "--show-examples",
+        action="store_true",
+        help="Fetch and display the API's labelled evaluation examples (read-only).",
+    )
     args = parser.parse_args()
     if args.reset and not args.submit:
         parser.error("--reset requires --submit.")
-    if (args.api_status or args.ticket_id) and (
+    if (args.api_status or args.ticket_id or args.show_examples) and (
         args.submit or args.reset or args.eval_examples or args.limit is not None
     ):
         parser.error("API inspection options cannot be combined with run or eval options.")
@@ -160,12 +165,31 @@ def main() -> None:
             response = client.get_ticket(args.ticket_id)
             print(json.dumps(redact_display_data(response), indent=2, ensure_ascii=False))
             return
+        if args.show_examples:
+            examples = client.get_examples()
+            print(
+                json.dumps(redact_display_data(examples), indent=2, ensure_ascii=False)
+            )
+            return
 
         model = args.model or os.getenv("TICKET_AGENT_MODEL", DEFAULT_MODEL)
         agent = HelpdeskAgent(client, JsonlLogger(args.out), model)
         if args.eval_examples:
-            result = evaluate_examples(agent, client.get_examples())
-            print(json.dumps(result, indent=2))
+            print("Fetching labelled examples from GET /examples...", flush=True)
+            examples = client.get_examples()
+            print(
+                f"Evaluating {len(examples)} labelled examples with model {model}.",
+                flush=True,
+            )
+            result = evaluate_examples(
+                agent,
+                examples,
+                on_progress=lambda index, total, example_id: print(
+                    f"Evaluating example {index}/{total}: {example_id}",
+                    flush=True,
+                ),
+            )
+            print(json.dumps(result, indent=2), flush=True)
             return
         if args.reset:
             client.reset_practice()
