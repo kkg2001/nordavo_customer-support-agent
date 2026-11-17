@@ -100,3 +100,71 @@ def test_ticket_detail_cli_redacts_payment_details(monkeypatch, capsys):
     printed = capsys.readouterr().out
     assert "4111 1111 1111 1111" not in printed
     assert "[REDACTED CARD]" in printed
+
+
+def test_eval_cli_prints_progress_before_final_metrics(monkeypatch, capsys):
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        def get_examples(self):
+            return [{"id": "E01"}]
+
+    def fake_evaluate(agent, examples, on_progress=None):
+        if on_progress is not None:
+            on_progress(1, len(examples), examples[0]["id"])
+        return {"accuracy": {"category": 1.0}}
+
+    monkeypatch.setattr(helpdesk_cli, "load_dotenv", lambda: None)
+    monkeypatch.setattr(helpdesk_cli, "HelpdeskClient", Client)
+    monkeypatch.setattr(helpdesk_cli, "HelpdeskAgent", lambda *args: object())
+    monkeypatch.setattr(helpdesk_cli, "evaluate_examples", fake_evaluate)
+    monkeypatch.setattr(sys, "argv", ["helpdesk_cli", "--eval-examples"])
+
+    helpdesk_cli.main()
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == "Fetching labelled examples from GET /examples..."
+    assert lines[1].startswith("Evaluating 1 labelled examples with model ")
+    assert lines[2] == "Evaluating example 1/1: E01"
+    assert json.loads("\n".join(lines[3:])) == {"accuracy": {"category": 1.0}}
+
+
+def test_show_examples_cli_prints_redacted_labels_without_running_agent(monkeypatch, capsys):
+    examples = [
+        {
+            "id": "E01",
+            "subject": "Invoice question",
+            "body": "Card 4111 1111 1111 1111",
+            "label": {"category": "billing", "action": "handoff"},
+        }
+    ]
+    calls = []
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        def get_examples(self):
+            calls.append("GET /examples")
+            return examples
+
+    def unexpected_agent(*args):
+        raise AssertionError("showing examples must not initialize the model agent")
+
+    monkeypatch.setattr(helpdesk_cli, "load_dotenv", lambda: None)
+    monkeypatch.setattr(helpdesk_cli, "HelpdeskClient", Client)
+    monkeypatch.setattr(helpdesk_cli, "HelpdeskAgent", unexpected_agent)
+    monkeypatch.setattr(sys, "argv", ["helpdesk_cli", "--show-examples"])
+
+    helpdesk_cli.main()
+
+    output = capsys.readouterr().out
+    displayed = json.loads(output)
+    assert calls == ["GET /examples"]
+    assert displayed[0]["label"] == {
+        "category": "billing",
+        "action": "handoff",
+    }
+    assert "[REDACTED CARD]" in displayed[0]["body"]
+    assert "4111 1111 1111 1111" not in output

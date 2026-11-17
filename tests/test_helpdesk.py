@@ -213,11 +213,16 @@ def test_eval_reports_only_expected_and_predicted_mismatches(monkeypatch):
         ), Usage(input_tokens=10, output_tokens=5)
 
     monkeypatch.setattr(helpdesk_module, "call_structured", fake_call)
+    progress = []
     result = evaluate_examples(
         SimpleNamespace(system_prompt="prompt", model="unpriced/model"),
         [example],
+        on_progress=lambda index, total, example_id: progress.append(
+            (index, total, example_id)
+        ),
     )
 
+    assert progress == [(1, 1, "E01")]
     assert result["failures"] == [
         {
             "id": "E01",
