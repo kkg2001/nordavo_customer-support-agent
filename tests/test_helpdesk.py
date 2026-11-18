@@ -90,6 +90,16 @@ def test_dutch_status_question_gets_the_faq_status_page_reply():
     assert "status.roosterly.nl" in decision.payload["draft_reply"]
 
 
+def test_dutch_question_about_whether_there_is_an_outage_is_not_escalated_as_an_incident():
+    decision = decide_helpdesk(
+        ticket(subject="Storing", body="Is er momenteel storing bij de app?"),
+        triage(language="nl", faq_reference="F11"),
+    )
+
+    assert decision.action == "reply"
+    assert "status.roosterly.nl" in decision.payload["draft_reply"]
+
+
 def test_reply_is_handed_off_when_detected_language_is_ambiguous_or_mismatched():
     ambiguous = decide_helpdesk(
         ticket(subject="?", body="?"),
@@ -196,6 +206,7 @@ def test_security_privacy_and_angry_leave_threats_always_handoff(body):
         "Our service is down for all users.",
         "We have lost data after the outage.",
         "A security issue may have exposed customer information.",
+        "Er is een grootschalige storing waardoor alle gebruikers geblokkeerd zijn.",
     ],
 )
 def test_urgent_incidents_are_handed_off_even_if_model_misses_priority(body):
