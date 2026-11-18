@@ -54,10 +54,15 @@ _RISKY = re.compile(
     re.I,
 )
 _URGENT = re.compile(
-    r"\b(outage|service down|system down|data loss|lost data|many users blocked|"
-    r"everyone is blocked|all users are blocked|storing|uitval|iedereen geblokkeerd|"
+    r"\b((?:widespread|major|service|system) outage|outage affecting|"
+    r"service down|system down|data loss|lost data|many users blocked|"
+    r"everyone is blocked|all users are blocked|iedereen geblokkeerd|"
     r"veel gebruikers geblokkeerd|alle gebruikers geblokkeerd|gegevensverlies|"
-    r"ausfall|datenverlust|viele benutzer blockiert|alle benutzer blockiert)\b",
+    r"flächendeckender ausfall|systemausfall|dienst ausgefallen|system ausgefallen|"
+    r"datenverlust|viele benutzer blockiert|alle benutzer blockiert|"
+    r"große störung|großflächige störung|dienst liegt lahm|system liegt lahm|"
+    r"grote storing|grootschalige storing|dienst ligt plat|systeem ligt plat|"
+    r"storing waardoor)\b",
     re.I,
 )
 _INJECTION = re.compile(
@@ -70,8 +75,9 @@ _INJECTION = re.compile(
 _LANGUAGE_MARKERS = {
     "nl": {
         "aanmelden", "abonnement", "factuur", "hoe", "ik", "locatie", "medewerker",
-        "gegevens", "gepland", "mijn", "naar", "niet", "onderhoud", "opgeslagen",
-        "rekening", "storing", "taal", "talen", "u", "uw", "vanavond",
+        "er", "gegevens", "gepland", "mijn", "momenteel", "naar", "niet",
+        "onderhoud", "opgeslagen", "rekening", "storing", "taal", "talen",
+        "u", "uw", "vanavond",
         "vestiging", "wachtwoord", "waar", "wat", "worden",
     },
     "en": {
