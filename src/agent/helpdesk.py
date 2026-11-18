@@ -19,12 +19,12 @@ from .llm import DEFAULT_MODEL, Usage, call_structured
 from .logger import JsonlLogger
 
 DEFAULT_HELPDESK_URL = "https://nakywgkztvzkihdjnwbc.supabase.co/functions/v1/helpdesk"
-PROMPT_VERSION = "helpdesk_v3"
+PROMPT_VERSION = "helpdesk_v4"
 CONFIDENCE_THRESHOLD = 0.75
 RETRY_LIMIT = 4
 MIN_REQUEST_INTERVAL = 0.21
 FAQ_PATH = Path(__file__).resolve().parents[2] / "knowledge" / "faq.md"
-PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / "helpdesk_v3.md"
+PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / "helpdesk_v4.md"
 
 _PAYMENT_CARD = re.compile(r"(?<!\d)(?:\d[ -]?){12,18}\d(?!\d)")
 _IBAN = re.compile(r"\b[A-Z]{2}\d{2}(?:[ -]?[A-Z0-9]){11,30}\b", re.I)
@@ -36,7 +36,9 @@ _RISKY = re.compile(
     r"rechtzaak|aankla\w*|"
     r"gdpr|avg|dsgvo|personal data|privacy request|persoonlijke gegevens|persoonsgegevens|"
     r"delete my data|gegevens verwijder\w*|recht op vergetelheid|inzage in (mijn )?gegevens|"
-    r"security incident|data breach|unauthori[sz]ed access|account compromised|suspicious login|"
+    r"legal|security incident|security issue|security concern|beveiligingsprobleem|"
+    r"sicherheitsproblem|data loss|lost data|gegevensverlies|datenverlust|data breach|"
+    r"unauthori[sz]ed access|account compromised|suspicious login|"
     r"beveiligingsincident|datalek|gehackt|verdachte login|account overgenomen|"
     r"threaten\w* to leave|leave the service|leave roosterly|"
     r"ik stap over|ik vertrek|ik zeg op|ik ga naar een ander systeem|ik stop met roosterly|"
@@ -48,6 +50,13 @@ _RISKY = re.compile(
     r"unacceptabel|woedend|boos|schandalig|belachelijk|belogen|oplichters)\b",
     re.I,
 )
+_URGENT = re.compile(
+    r"\b(outage|service down|system down|data loss|lost data|many users blocked|"
+    r"everyone is blocked|all users are blocked|storing|uitval|iedereen geblokkeerd|"
+    r"veel gebruikers geblokkeerd|alle gebruikers geblokkeerd|gegevensverlies|"
+    r"ausfall|datenverlust|viele benutzer blockiert|alle benutzer blockiert)\b",
+    re.I,
+)
 _INJECTION = re.compile(
     r"\b(ignore|disregard|forget) (all |any )?(the )?(previous|prior|above) instructions\b|"
     r"\b(reveal|print|show|exfiltrate) (the )?(system prompt|secrets|credentials)\b|"
@@ -55,14 +64,100 @@ _INJECTION = re.compile(
     r"\bignoriere (alle )?(vorherigen|früheren) anweisungen\b",
     re.I,
 )
+_LANGUAGE_MARKERS = {
+    "nl": {
+        "aanmelden", "abonnement", "factuur", "hoe", "ik", "locatie", "medewerker",
+        "gegevens", "gepland", "mijn", "naar", "niet", "onderhoud", "opgeslagen",
+        "rekening", "storing", "taal", "talen", "u", "uw", "vanavond",
+        "vestiging", "wachtwoord", "waar", "wat", "worden",
+    },
+    "en": {
+        "can", "do", "does", "employee", "for", "how", "invoice", "is", "it",
+        "language", "location", "my", "outage", "password", "please", "the",
+        "they", "we", "what", "where", "with", "you", "your",
+    },
+    "de": {
+        "abonnement", "bitte", "der", "die", "ein", "eine", "für", "ich", "ihr",
+        "ist", "kann", "konto", "mit", "mitarbeiter", "mein", "nicht", "passwort",
+        "rechnung", "sie", "sind", "sprache", "standort", "störung", "und", "was",
+        "werden", "wie", "wo",
+    },
+}
+_WORD = re.compile(r"\b[\wäöüß]+\b", re.I)
 _BILLING_TERMS = re.compile(
     r"\b(invoice\w*|factuur\w*|rechnung\w*|bill\w*|billing|payment\w*|charge\w*|"
     r"betaling\w*|betaal\w*|afschrijving\w*|zahlung\w*|preis\w*|price\w*|"
-    r"plan\s+price|planprijs|terugbetaling\w*|terugbetalen|refund\w*)\b",
+    r"plan\s+price|planprijs|cost\w*|kosten|kost\w*|prijs\w*|how much|wat kost|"
+    r"subscription\w*|abonnement\w*|terugbetaling\w*|terugbetalen|refund\w*)\b",
     re.I,
 )
 _FAQ_REFERENCE = re.compile(r"^F(?:0[1-9]|1[0-2])$")
-_SPAM = re.compile(r"\b(spam|casino|crypto giveaway|buy followers|seo services)\b", re.I)
+_FAQ_TOPIC_PATTERNS = {
+    "F01": re.compile(r"\b(password|wachtwoord|passwort|login|aanmelden|sign[ -]?in)\b", re.I),
+    "F02": re.compile(r"\b(employee|medewerker|mitarbeiter|team member|teammitglied|invite|uitnodig\w*|einlad\w*)\b", re.I),
+    "F03": re.compile(r"\b(shift|dienst|schicht|swap|tausch|ruil\w*)\b", re.I),
+    "F04": re.compile(r"\b(payroll|salaris|loonk|nmbrs|loket|afas|csv|export\w*|abrechnung)\b", re.I),
+    "F07": re.compile(r"\b(location|locatie|vestiging|standort|branch)\b", re.I),
+    "F08": re.compile(r"\b(language|taal|sprache|sprachen)\b", re.I),
+    "F09": re.compile(r"\b(data|gegevens|daten|server|storage|opslag|speicherung|stored|gespeichert)\b", re.I),
+    "F11": re.compile(r"\b(status|outage|maintenance|storing|onderhoud|ausfall|wartung|verstoring|beschikbaar)\b", re.I),
+}
+_FAQ_REPLIES = {
+    "F01": {
+        "nl": "Ga naar app.roosterly.nl/login, kies 'Wachtwoord vergeten' en vul het e-mailadres van uw account in. De link is 60 minuten geldig. Ontvangt u binnen 10 minuten geen e-mail, controleer dan uw spammap.",
+        "en": "Go to app.roosterly.nl/login, select 'Wachtwoord vergeten,' and enter your account email. The link is valid for 60 minutes. If no email arrives within 10 minutes, check your spam folder.",
+        "de": "Öffnen Sie app.roosterly.nl/login, wählen Sie 'Wachtwoord vergeten' und geben Sie die E-Mail-Adresse Ihres Kontos ein. Der Link ist 60 Minuten gültig. Wenn innerhalb von 10 Minuten keine E-Mail ankommt, prüfen Sie Ihren Spam-Ordner.",
+    },
+    "F02": {
+        "nl": "Een manager opent Team → Medewerker toevoegen, vult de naam, het e-mailadres en de contracturen van de medewerker in en kiest Uitnodigen. De medewerker ontvangt een installatie-e-mail. Kosten gelden voor actieve medewerkers.",
+        "en": "A manager opens Team → Medewerker toevoegen, enters the employee's name, email, and contract hours, then selects Uitnodigen. The employee receives an installation email. Charges apply to active employees.",
+        "de": "Eine Führungskraft öffnet Team → Medewerker toevoegen, trägt Name, E-Mail-Adresse und Vertragsstunden der Person ein und wählt Uitnodigen. Die Person erhält eine Installations-E-Mail. Gebühren fallen für aktive Mitarbeitende an.",
+    },
+    "F03": {
+        "nl": "Een medewerker biedt de ruil aan vanuit de dienst in de app. Een collega met dezelfde rol kan deze accepteren. Goedkeuring door een manager staat standaard aan en wordt beheerd onder Rooster → Verzoeken of Instellingen → Rooster.",
+        "en": "An employee offers a swap from the shift in the app. A colleague with the same role can accept it. Manager approval is on by default and is managed under Rooster → Verzoeken or Instellingen → Rooster.",
+        "de": "Mitarbeitende bieten einen Tausch über die Schicht in der App an. Eine Person mit derselben Rolle kann ihn annehmen. Die Genehmigung durch eine Führungskraft ist standardmäßig aktiviert und wird unter Rooster → Verzoeken oder Instellingen → Rooster verwaltet.",
+    },
+    "F04": {
+        "nl": "Goedgekeurde uren kunnen worden geëxporteerd naar Nmbrs, Loket.nl, AFAS of CSV. Stel exports in onder Instellingen → Koppelingen → Salaris en kies een week-, vierweken- of maandperiode. De drie genoemde integraties zijn inbegrepen bij Plus.",
+        "en": "Approved hours can be exported to Nmbrs, Loket.nl, AFAS, or CSV. Configure exports under Instellingen → Koppelingen → Salaris and choose a weekly, four-week, or monthly pay period. The three named integrations are included in Plus.",
+        "de": "Genehmigte Stunden können nach Nmbrs, Loket.nl, AFAS oder als CSV exportiert werden. Richten Sie Exporte unter Instellingen → Koppelingen → Salaris ein und wählen Sie einen wöchentlichen, vierwöchentlichen oder monatlichen Abrechnungszeitraum. Die drei genannten Integrationen sind in Plus enthalten.",
+    },
+    "F07": {
+        "nl": "Meerdere vestigingen vereisen Plus. Voeg een vestiging toe via Instellingen → Vestigingen → Nieuwe vestiging. Medewerkers kunnen aan meerdere vestigingen zijn gekoppeld.",
+        "en": "Multiple locations require Plus. Add a location under Instellingen → Vestigingen → Nieuwe vestiging. Employees can belong to multiple locations.",
+        "de": "Mehrere Standorte erfordern Plus. Fügen Sie einen Standort unter Instellingen → Vestigingen → Nieuwe vestiging hinzu. Mitarbeitende können mehreren Standorten zugeordnet sein.",
+    },
+    "F08": {
+        "nl": "De web- en mobiele apps ondersteunen Nederlands, Engels en Duits. Iedere gebruiker kiest een taal via Profiel → Taal.",
+        "en": "The web and mobile apps support Dutch, English, and German. Each user selects a language under Profiel → Taal.",
+        "de": "Die Web- und Mobil-Apps unterstützen Niederländisch, Englisch und Deutsch. Jede Person wählt eine Sprache unter Profiel → Taal aus.",
+    },
+    "F09": {
+        "nl": "Gegevens worden opgeslagen in Frankfurt, Duitsland (EU) en verwerkt onder een verwerkersovereenkomst. U vindt die onder Instellingen → Juridisch.",
+        "en": "Data is stored in Frankfurt, Germany (EU), and processed under a data-processing agreement. It is available under Instellingen → Juridisch.",
+        "de": "Daten werden in Frankfurt, Deutschland (EU), gespeichert und gemäß einem Auftragsverarbeitungsvertrag verarbeitet. Sie finden diesen unter Instellingen → Juridisch.",
+    },
+    "F11": {
+        "nl": "Actuele storingen en gepland onderhoud staan op status.roosterly.nl.",
+        "en": "Current outages and planned maintenance are listed at status.roosterly.nl.",
+        "de": "Aktuelle Ausfälle und geplante Wartungsarbeiten finden Sie auf status.roosterly.nl.",
+    },
+}
+
+
+def detect_ticket_language(text: str) -> Literal["nl", "en", "de"] | None:
+    words = set(_WORD.findall(text.casefold()))
+    scores = {
+        language: len(words & markers)
+        for language, markers in _LANGUAGE_MARKERS.items()
+    }
+    ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    if ranked[0][1] < 2 or ranked[0][1] == ranked[1][1]:
+        return None
+    if ranked[0][0] in {"nl", "en", "de"}:
+        return ranked[0][0]
+    return None
 
 
 def redact_payment_details(value: str) -> str:
@@ -96,10 +191,7 @@ class HelpdeskTriage(BaseModel):
     is_simple_question: bool
     answerable_from_faq: bool
     faq_reference: str | None = None
-    draft_reply: str | None = None
-    english_summary: str | None = None
     handoff_note: str = ""
-    is_spam_or_empty: bool = False
 
 
 class Action(str, Enum):
@@ -159,13 +251,22 @@ def decide_helpdesk(
     base = _base_payload(triage)
 
     if not ticket.subject.strip() and not ticket.body.strip():
-        reason = "Empty ticket; closed without customer contact."
-        return HelpdeskDecision(Action.close, {**base, "reason": reason}, reason)
-    if _INJECTION.search(text) or _RISKY.search(text):
+        reason = "Empty ticket requires human review."
+        note = "The ticket is empty. Please review it and decide whether any action is needed."
+        return HelpdeskDecision(
+            Action.handoff,
+            {**base, "reason": reason, "handoff_note": note},
+            reason,
+        )
+    if _INJECTION.search(text) or _URGENT.search(text) or _RISKY.search(text):
         reason = (
             "Ticket contains instructions directed at the agent."
             if _INJECTION.search(text)
-            else "Ticket involves a restricted or sensitive support matter."
+            else (
+                "Ticket indicates an urgent incident."
+                if _URGENT.search(text)
+                else "Ticket involves a restricted or sensitive support matter."
+            )
         )
         note = redact_payment_details(
             triage.handoff_note.strip()
@@ -178,15 +279,21 @@ def decide_helpdesk(
             {**base, "reason": payload_reason, "handoff_note": note},
             reason,
         )
-    if triage and triage.category == "other" and (
-        triage.is_spam_or_empty or _SPAM.search(text)
-    ):
-        reason = "Ticket is identified as spam; closed without customer contact."
-        return HelpdeskDecision(Action.close, {**base, "reason": reason}, reason)
     if triage is None:
         reason = "Automated analysis failed; a support agent must review this ticket."
         note = "Automated analysis failed. Please review the ticket and decide how to respond."
         return HelpdeskDecision(Action.handoff, {**base, "handoff_note": note}, reason)
+    if triage.category == "billing" or _BILLING_TERMS.search(text):
+        reason = "Billing requests require human review."
+        note = redact_payment_details(
+            triage.handoff_note.strip()
+            or "Please review this billing request and determine the appropriate next step."
+        )
+        return HelpdeskDecision(
+            Action.handoff,
+            {**base, "reason": _decision_reason(triage, Action.handoff, reason), "handoff_note": note},
+            reason,
+        )
     if triage.needs_human:
         reason = redact_payment_details(
             triage.human_reason or "The model flagged this ticket for human review."
@@ -197,6 +304,8 @@ def decide_helpdesk(
         reason = f"Category {triage.category} requires human review."
     elif triage.priority == "P1":
         reason = "P1 priority requires immediate human attention."
+    elif triage.category == "other":
+        reason = "Category other requires human review."
     else:
         reason = ""
 
@@ -211,34 +320,37 @@ def decide_helpdesk(
             reason,
         )
 
-    faq_category_match = (
-        (triage.category == "question" and triage.is_simple_question)
-        or (triage.category == "feature_request" and triage.faq_reference == "F10")
-        or (triage.category == "bug" and triage.faq_reference == "F12")
-        or (
-            triage.category == "billing"
-            and triage.faq_reference in {"F05", "F06"}
-            and triage.is_simple_question
-        )
+    faq_reference = triage.faq_reference or ""
+    topic_pattern = _FAQ_TOPIC_PATTERNS.get(faq_reference)
+    language_in_ticket = detect_ticket_language(
+        f"{ticket.subject}\n{ticket.body}"
     )
+    reply = _FAQ_REPLIES.get(faq_reference, {}).get(triage.language)
     can_reply = (
-        faq_category_match
+        triage.category == "question"
+        and triage.is_simple_question
         and triage.answerable_from_faq
-        and bool(triage.faq_reference and _FAQ_REFERENCE.fullmatch(triage.faq_reference))
-        and bool(triage.draft_reply and triage.draft_reply.strip())
-        and bool(triage.english_summary and triage.english_summary.strip())
-        and len(triage.draft_reply.split()) <= 120
+        and bool(_FAQ_REFERENCE.fullmatch(faq_reference))
+        and topic_pattern is not None
+        and bool(topic_pattern.search(text))
+        and language_in_ticket == triage.language
+        and bool(reply)
+        and len(reply.split()) <= 120
     )
     if can_reply:
-        reply = redact_payment_details(triage.draft_reply.strip())
         reason = _decision_reason(triage, Action.reply, "")
         return HelpdeskDecision(
             Action.reply,
             {**base, "reason": reason, "draft_reply": reply},
-            "Confident simple question answered from the help centre.",
+            "Confident simple question answered with a localized help-centre response.",
         )
 
-    reason = "The ticket is not a confident, FAQ-grounded simple question."
+    if language_in_ticket != triage.language:
+        reason = "The customer's language could not be verified with sufficient confidence."
+    elif topic_pattern is None or not topic_pattern.search(text):
+        reason = "The FAQ reference does not clearly match the ticket topic."
+    else:
+        reason = "The ticket is not a confident, FAQ-grounded simple question."
     note = redact_payment_details(
         triage.handoff_note.strip()
         or "Please review the request; an FAQ-grounded reply could not be prepared safely."
@@ -300,7 +412,7 @@ class HelpdeskClient:
             except HTTPError as exc:
                 if exc.code == 409:
                     raise AlreadyHandledError() from exc
-                retryable = exc.code in {429, 503}
+                retryable = method == "GET" and exc.code in {429, 503}
                 if not retryable or attempt == self.max_retries:
                     code = None
                     try:
@@ -449,9 +561,13 @@ class HelpdeskAgent:
                 if decision.action == Action.handoff
                 else None
             ),
-            "draft_reply": redact_payment_details(triage.draft_reply or "") if triage and decision.action == Action.reply else None,
+            "draft_reply": (
+                redact_payment_details(decision.payload.get("draft_reply", ""))
+                if decision.action == Action.reply
+                else None
+            ),
             "english_summary": (
-                redact_payment_details(triage.english_summary or "")
+                _FAQ_REPLIES.get(triage.faq_reference or "", {}).get("en")
                 if triage and decision.action == Action.reply
                 else None
             ),

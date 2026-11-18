@@ -43,19 +43,74 @@ def triage(**values) -> HelpdeskTriage:
         is_simple_question=True,
         answerable_from_faq=True,
         faq_reference="F01",
-        draft_reply="Go to the login page and select Forgot password.",
-        english_summary="The customer should use the password reset link.",
-        is_spam_or_empty=False,
     )
     base.update(values)
     return HelpdeskTriage(**base)
 
 
 def test_faq_grounded_simple_question_gets_reply():
-    decision = decide_helpdesk(ticket(), triage())
+    decision = decide_helpdesk(
+        ticket(),
+        triage(draft_reply="We offer a 20% discount for annual plans."),
+    )
 
     assert decision.action == "reply"
-    assert decision.payload["draft_reply"]
+    assert "60 minutes" in decision.payload["draft_reply"]
+    assert "20% discount" not in decision.payload["draft_reply"]
+
+
+def test_dutch_question_gets_a_dutch_faq_reply():
+    decision = decide_helpdesk(
+        ticket(subject="Wachtwoord", body="Hoe reset ik mijn wachtwoord?"),
+        triage(language="nl"),
+    )
+
+    assert decision.action == "reply"
+    assert "Wachtwoord vergeten" in decision.payload["draft_reply"]
+    assert "password" not in decision.payload["draft_reply"].lower()
+
+
+def test_german_question_gets_a_german_faq_reply():
+    decision = decide_helpdesk(
+        ticket(subject="Passwort", body="Wie kann ich mein Passwort zurücksetzen?"),
+        triage(language="de"),
+    )
+
+    assert decision.action == "reply"
+    assert "Wachtwoord vergeten" in decision.payload["draft_reply"]
+
+
+def test_dutch_status_question_gets_the_faq_status_page_reply():
+    decision = decide_helpdesk(
+        ticket(subject="Onderhoud", body="Is er vanavond onderhoud gepland?"),
+        triage(language="nl", faq_reference="F11"),
+    )
+
+    assert decision.action == "reply"
+    assert "status.roosterly.nl" in decision.payload["draft_reply"]
+
+
+def test_reply_is_handed_off_when_detected_language_is_ambiguous_or_mismatched():
+    ambiguous = decide_helpdesk(
+        ticket(subject="?", body="?"),
+        triage(),
+    )
+    mismatched = decide_helpdesk(
+        ticket(body="How do I reset my password?"),
+        triage(language="nl"),
+    )
+
+    assert ambiguous.action == "handoff"
+    assert mismatched.action == "handoff"
+
+
+def test_faq_reference_must_match_ticket_topic():
+    decision = decide_helpdesk(
+        ticket(body="How do I reset my password?"),
+        triage(faq_reference="F06"),
+    )
+
+    assert decision.action == "handoff"
 
 
 def test_billing_and_refunds_always_handoff():
@@ -68,19 +123,19 @@ def test_billing_and_refunds_always_handoff():
 
 
 @pytest.mark.parametrize(
-    "subject,body,faq_reference",
+    "subject,body",
     [
-        ("Prijs Plus", "Wat kost Plus voor 25 medewerkers?", "F05"),
-        ("Btw-nummer", "Kunnen jullie het nieuwe btw-nummer op onze facturen zetten?", "F06"),
+        ("Prijs Plus", "Wat kost Plus voor 25 medewerkers?"),
+        ("Btw-nummer", "Kunnen jullie het nieuwe btw-nummer op onze facturen zetten?"),
     ],
 )
-def test_faq_supported_billing_information_can_be_replied_to(subject, body, faq_reference):
+def test_faq_supported_billing_information_is_handed_off(subject, body):
     decision = decide_helpdesk(
         ticket(subject=subject, body=body),
-        triage(category="billing", faq_reference=faq_reference),
+        triage(category="billing", faq_reference="F05"),
     )
 
-    assert decision.action == "reply"
+    assert decision.action == "handoff"
 
 
 def test_invoice_detail_question_is_classified_as_billing_even_if_model_says_question():
@@ -107,7 +162,7 @@ def test_feature_request_can_get_the_faq_roadmap_reply():
         ),
     )
 
-    assert decision.action == "reply"
+    assert decision.action == "handoff"
 
 
 def test_compatibility_bug_can_get_the_faq_requirements_reply():
@@ -120,7 +175,7 @@ def test_compatibility_bug_can_get_the_faq_requirements_reply():
         ),
     )
 
-    assert decision.action == "reply"
+    assert decision.action == "handoff"
 
 
 @pytest.mark.parametrize(
@@ -133,6 +188,18 @@ def test_compatibility_bug_can_get_the_faq_requirements_reply():
 )
 def test_security_privacy_and_angry_leave_threats_always_handoff(body):
     assert decide_helpdesk(ticket(body=body), triage()).action == "handoff"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Our service is down for all users.",
+        "We have lost data after the outage.",
+        "A security issue may have exposed customer information.",
+    ],
+)
+def test_urgent_incidents_are_handed_off_even_if_model_misses_priority(body):
+    assert decide_helpdesk(ticket(body=body), triage(priority="P4")).action == "handoff"
 
 
 def test_dutch_cancellation_is_handed_off_even_if_model_misses_it():
@@ -152,14 +219,14 @@ def test_prompt_injection_is_handed_off():
     ).action == "handoff"
 
 
-def test_empty_ticket_is_closed_without_customer_reply():
+def test_empty_and_spam_tickets_are_handed_off_without_customer_reply():
     empty = HelpdeskTicket(id="T002", subject="", body="")
     spam = ticket(subject="SEO services", body="Buy followers now")
 
-    assert decide_helpdesk(empty, None).action == "close"
+    assert decide_helpdesk(empty, None).action == "handoff"
     assert decide_helpdesk(
-        spam, triage(category="other", is_spam_or_empty=True)
-    ).action == "close"
+        spam, triage(category="other")
+    ).action == "handoff"
 
 
 def test_other_and_urgent_tickets_are_handed_off():
@@ -170,7 +237,7 @@ def test_other_and_urgent_tickets_are_handed_off():
 def test_low_confidence_or_missing_faq_evidence_is_handed_off():
     assert decide_helpdesk(ticket(), triage(confidence=0.4)).action == "handoff"
     assert decide_helpdesk(ticket(), triage(faq_reference=None)).action == "handoff"
-    assert decide_helpdesk(ticket(), triage(english_summary=None)).action == "handoff"
+    assert decide_helpdesk(ticket(), triage(answerable_from_faq=False)).action == "handoff"
 
 
 def test_dutch_refund_request_is_handed_off_even_when_model_misses_category():
@@ -257,6 +324,9 @@ def test_ticket_processing_logs_once_and_redacts_sensitive_values(monkeypatch):
     assert card_number not in json.dumps(records[0])
     assert result["submission_status"] == "dry_run"
     assert result["triage_status"] == "succeeded"
+    assert "60 minutes" in result["draft_reply"]
+    assert records[0]["draft_reply"] == result["draft_reply"]
+    assert result["english_summary"] == result["draft_reply"]
     assert result["cost_usd"] is None
 
 
@@ -301,6 +371,29 @@ def test_model_failure_logs_unavailable_triage_and_hands_off(monkeypatch):
     assert result["category"] is None
     assert result["priority"] is None
     assert result["action"] == "handoff"
+    assert len(records) == 1
+
+
+def test_submission_failure_is_logged_without_claiming_action_succeeded(monkeypatch):
+    records = []
+    logger = type("Logger", (), {"log": lambda self, record: records.append(record)})()
+
+    class Client:
+        def submit(self, ticket_id, decision):
+            raise HelpdeskApiError(503, "service_unavailable")
+
+    agent = HelpdeskAgent(client=Client(), logger=logger, model="unpriced/model")
+    monkeypatch.setattr(
+        helpdesk_module,
+        "call_structured",
+        lambda system, user, schema, model: (triage(), Usage(input_tokens=2, output_tokens=1)),
+    )
+
+    result = agent.process_ticket(ticket(), submit=True)
+
+    assert result["action"] == "reply"
+    assert result["submitted_action"] is None
+    assert result["submission_status"] == "failed: HTTP 503 (service_unavailable)"
     assert len(records) == 1
 
 
@@ -352,22 +445,26 @@ def test_503_retries_after_backoff_and_uses_required_headers():
     assert 0 in delays
 
 
-def test_503_submission_retries_after_server_confirms_no_action_was_saved():
+@pytest.mark.parametrize(
+    "status,code",
+    [(429, "rate_limited"), (503, "service_unavailable")],
+)
+def test_transient_http_errors_do_not_retry_post_actions(status, code):
     calls = []
 
     def opener(request, timeout):
         calls.append(request)
-        if len(calls) == 1:
-            raise api_error(503, "service_unavailable", 0)
-        return FakeResponse(b"{}")
+        raise api_error(status, code, 0)
 
     client = HelpdeskClient(
         "key", "candidate@example.com", opener=opener, sleep=lambda _: None
     )
-    client.submit("T1", decide_helpdesk(ticket(), triage()))
+    with pytest.raises(HelpdeskApiError) as error:
+        client.submit("T1", decide_helpdesk(ticket(), triage()))
 
-    assert len(calls) == 2
-    assert all(call.get_method() == "POST" for call in calls)
+    assert error.value.status == status
+    assert len(calls) == 1
+    assert calls[0].get_method() == "POST"
 
 
 def test_429_waits_for_retry_after_before_retrying():
