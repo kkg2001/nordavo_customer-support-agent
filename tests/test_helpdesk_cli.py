@@ -1,6 +1,8 @@
 import json
 import sys
 
+import pytest
+
 from agent import helpdesk_cli
 from agent.helpdesk_cli import format_ticket_result, redact_display_data
 
@@ -168,3 +170,122 @@ def test_show_examples_cli_prints_redacted_labels_without_running_agent(monkeypa
     }
     assert "[REDACTED CARD]" in displayed[0]["body"]
     assert "4111 1111 1111 1111" not in output
+
+
+def test_reset_only_reopens_practice_tickets_without_running_agent(monkeypatch, capsys):
+    calls = []
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        def reset_practice(self):
+            calls.append("POST /practice/reset")
+            return {"reset": True}
+
+    def unexpected_agent(*args):
+        raise AssertionError("--reset-only must not initialize the agent")
+
+    monkeypatch.setattr(helpdesk_cli, "load_dotenv", lambda: None)
+    monkeypatch.setattr(helpdesk_cli, "HelpdeskClient", Client)
+    monkeypatch.setattr(helpdesk_cli, "HelpdeskAgent", unexpected_agent)
+    monkeypatch.setattr(sys, "argv", ["helpdesk_cli", "--reset-only"])
+
+    helpdesk_cli.main()
+
+    assert calls == ["POST /practice/reset"]
+    assert capsys.readouterr().out.strip() == "Practice tickets reset."
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        ["--submit"],
+        ["--reset"],
+        ["--eval-examples"],
+        ["--limit", "1"],
+        ["--api-status"],
+    ],
+)
+def test_reset_only_rejects_other_run_or_inspection_options(
+    monkeypatch, capsys, options
+):
+    monkeypatch.setattr(helpdesk_cli, "load_dotenv", lambda: None)
+    monkeypatch.setattr(
+        sys, "argv", ["helpdesk_cli", "--reset-only", *options]
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        helpdesk_cli.main()
+
+    assert exc.value.code == 2
+
+
+@pytest.mark.parametrize(
+    "submit,expected_path",
+    [
+        (False, "logs/helpdesk_run.jsonl"),
+        (True, "logs/submitted_run.jsonl"),
+    ],
+)
+def test_cli_uses_separate_default_logs_for_dry_run_and_submission(
+    monkeypatch, capsys, submit, expected_path
+):
+    log_paths = []
+    argv = ["helpdesk_cli"]
+    if submit:
+        argv.append("--submit")
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+    class Agent:
+        def __init__(self, client, logger, model):
+            log_paths.append(logger)
+
+        def run(self, limit=None, submit=False, on_result=None):
+            return []
+
+    monkeypatch.setattr(helpdesk_cli, "load_dotenv", lambda: None)
+    monkeypatch.setattr(helpdesk_cli, "HelpdeskClient", Client)
+    monkeypatch.setattr(helpdesk_cli, "HelpdeskAgent", Agent)
+    monkeypatch.setattr(
+        helpdesk_cli, "JsonlLogger", lambda path: log_paths.append(path) or path
+    )
+    monkeypatch.setattr(sys, "argv", argv)
+
+    helpdesk_cli.main()
+
+    assert log_paths == [expected_path, expected_path]
+    assert json.loads(capsys.readouterr().out)["log"] == expected_path
+
+
+def test_cli_explicit_log_path_overrides_mode_default(monkeypatch, capsys):
+    log_paths = []
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+    class Agent:
+        def __init__(self, client, logger, model):
+            log_paths.append(logger)
+
+        def run(self, limit=None, submit=False, on_result=None):
+            return []
+
+    monkeypatch.setattr(helpdesk_cli, "load_dotenv", lambda: None)
+    monkeypatch.setattr(helpdesk_cli, "HelpdeskClient", Client)
+    monkeypatch.setattr(helpdesk_cli, "HelpdeskAgent", Agent)
+    monkeypatch.setattr(
+        helpdesk_cli, "JsonlLogger", lambda path: log_paths.append(path) or path
+    )
+    monkeypatch.setattr(
+        sys, "argv", ["helpdesk_cli", "--submit", "--out", "logs/custom.jsonl"]
+    )
+
+    helpdesk_cli.main()
+
+    assert log_paths == ["logs/custom.jsonl", "logs/custom.jsonl"]
+    assert json.loads(capsys.readouterr().out)["log"] == "logs/custom.jsonl"
