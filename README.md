@@ -1,47 +1,42 @@
-# Roosterly helpdesk agent
-
 ## How to run
 
-From the repository root, copy `.env.example` to `.env` if needed and set `HELPDESK_API_KEY`, `CANDIDATE_EMAIL`, and `GROQ_API_KEY`. Never commit `.env`.
+From a fresh clone, install and configure:
 
 ```powershell
-if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 py -m pip install -e ".[dev]"
+Copy-Item .env.example .env
+# Set HELPDESK_API_KEY, CANDIDATE_EMAIL, and GROQ_API_KEY in .env
 py -m pytest -q
 py -m agent.helpdesk_cli --api-status
-py scripts/list_tickets.py
+py scripts/list_tickets.py                 # open tickets
 py scripts/list_tickets.py --status all
 py -m agent.helpdesk_cli --ticket-id T005
-py -m agent.helpdesk_cli --show-examples  # print the ten labelled examples (GET only)
-py -m agent.helpdesk_cli                    # all open tickets; dry run
-py -m agent.helpdesk_cli --limit 1          # one-ticket demo; dry run
-py -m agent.helpdesk_cli --limit 1 --submit # post for first open ticket
-py -m agent.helpdesk_cli --submit           # post for all open tickets
-py -m agent.helpdesk_cli --eval-examples    # evaluate ten labelled examples; no submission
-py -m agent.helpdesk_cli --submit --reset   # final run: reset, then submit practice tickets
+py -m agent.helpdesk_cli --show-examples
+py -m agent.helpdesk_cli --eval-examples
+py -m agent.helpdesk_cli                   # all tickets, dry run
+py -m agent.helpdesk_cli --limit 1         # one-ticket dry-run demo
 Get-Content .\logs\helpdesk_run.jsonl -Tail 5
+py -m agent.helpdesk_cli --submit --reset  # real final practice run
 ```
 
-`--submit` posts real actions; replies reach customers. Use `--submit --reset` once for the final practice run. Each ticket prints language, category, priority, action, and status; `--limit` is for demos. Logs contain one record per ticket, not its body.
+`--submit` posts real actions; replies reach customers. Raw run logs are local and ignored; `logs/sample_run.jsonl` is sanitized.
 
 ## Decisions
 
-- One structured Groq call proposes triage; deterministic code selects reply or human handoff. Only a simple question with a matching FAQ topic can receive a reply. Replies are fixed, localized FAQ templates rather than model-written text; unsupported language or topic matches go to a human.
-- Billing, category `other`, urgent, sensitive, angry, ambiguous, and non-FAQ cases go to a human. Ticket text is untrusted; card and IBAN patterns are redacted.
-- Cost uses `pricing.json`; unknown rates stay unknown. Copilot helped build the agent. Assumptions: documented pagination is stable; supported languages are Dutch, English, and German.
+1. Groq makes one structured triage proposal; deterministic code chooses reply or handoff. This keeps escalation rules out of model judgment.
+2. Replies use fixed FAQ-based templates. The model proposes Dutch, English, or German; a conservative language check must agree or the ticket goes to a human. I used Copilot to help build and test the code, not to make live ticket decisions.
+3. I assumed API priorities are P1–P4 and documented pagination is stable. When the brief and eval labels conflict, the safer human-handoff policy takes precedence.
 
 ## Reliability
 
-The client paginates open tickets, stays below five requests per second, retries GET requests on 429 via `Retry-After` and 503 with backoff, and treats 409 as already handled. It does not retry POST actions after transient errors, avoiding possible duplicate customer actions. Reruns rely on server state/409; do not run concurrent submissions. Per-ticket Groq failures hand off safely.
-
-Last recorded 30-ticket run: 30 successful actions (3 replies, 26 handoffs, 1 close); Groq rate-limited 25, leaving their triage fields unavailable. Actions completed, but classification did not.
+GET requests retry 429 using `Retry-After` and 503 with backoff; POST actions are not retried to avoid duplicates. A 409 means already handled. After a crash, rerun: handled tickets are omitted by the open-ticket listing or reported as 409. An ambiguous failed POST is logged for review. Ticket text is treated as untrusted, card/IBAN patterns are redacted, `.env` is ignored, and raw ticket bodies are not logged.
 
 ## Eval and fix
 
-The eval uses ten `GET /examples` labels; the model does not write them. Latest run: category 100% (10/10), priority 100% (10/10), action 50% (5/10), and language 100% (10/10). It used 15,833 input tokens and 3,941 output tokens; cost was `$0.035538` for 10 examples (`$0.3554` per 100).
+The earlier baseline was category 90%, priority 100%, action 90%, language 100%. The fix tightened deterministic escalation, matched FAQ topics to tickets, and replaced model-written drafts with localized FAQ templates. Latest 10-example eval: category 100% (10/10), priority 100% (10/10), action 50% (5/10), language 100% (10/10). Action mismatches E01, E02, E05, E07, and E08 reflect deliberate handoff for bug, billing, feature-request, and `other` tickets, although the labels expect replies or spam closure.
 
-Action mismatches were E01, E02, E05, E07, and E08. These are intentional differences from the supplied labels under the stricter routing policy: E01 is a bug/compatibility issue, E02 and E07 are billing, E05 is a feature request, and E08 is category `other` spam. The policy sends each to a human rather than replying or closing automatically. Do not interpret the 50% action score as a model failure alone; it also reflects this deliberate policy/label conflict.
+Cost: `$0.035538 / 10 tickets * 100 = $0.35538`, or about **$0.3554 per 100 tickets**. Results and token counts are in [eval/results.json](./eval/results.json); a sanitized historical v3 log sample is in [logs/sample_run.jsonl](./logs/sample_run.jsonl).
 
 ## What I would improve
 
-The language/topic checks intentionally prefer human review when uncertain. Add more multilingual edge cases to the labelled evaluation set before relaxing those checks.
+Next, add more multilingual and escalation edge cases to the eval set. I would clarify that the written safety policy outranks labels that expect an automatic response or closure for a ticket the policy says to hand off.

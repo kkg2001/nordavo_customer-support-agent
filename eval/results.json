@@ -1,0 +1,73 @@
+{
+  "evaluation_date": "2026-11-18",
+  "model": "openai/gpt-oss-20b",
+  "examples": 10,
+  "accuracy": {
+    "category": {
+      "correct": 10,
+      "total": 10,
+      "fraction": 1.0
+    },
+    "priority": {
+      "correct": 10,
+      "total": 10,
+      "fraction": 1.0
+    },
+    "action": {
+      "correct": 5,
+      "total": 10,
+      "fraction": 0.5
+    },
+    "language": {
+      "correct": 10,
+      "total": 10,
+      "fraction": 1.0
+    }
+  },
+  "failures": [
+    {
+      "id": "E01",
+      "metric": "action",
+      "expected": "reply",
+      "predicted": "handoff"
+    },
+    {
+      "id": "E02",
+      "metric": "action",
+      "expected": "reply",
+      "predicted": "handoff"
+    },
+    {
+      "id": "E05",
+      "metric": "action",
+      "expected": "reply",
+      "predicted": "handoff"
+    },
+    {
+      "id": "E07",
+      "metric": "action",
+      "expected": "reply",
+      "predicted": "handoff"
+    },
+    {
+      "id": "E08",
+      "metric": "action",
+      "expected": "close",
+      "predicted": "handoff"
+    }
+  ],
+  "usage": {
+    "input_tokens": 15833,
+    "output_tokens": 3941,
+    "total_cost_usd": 0.035538,
+    "cost_per_100_tickets_usd": 0.35538,
+    "calculation": "0.035538 / 10 * 100"
+  },
+  "baseline_before_fix": {
+    "category_accuracy": 0.9,
+    "priority_accuracy": 1.0,
+    "action_accuracy": 0.9,
+    "language_accuracy": 1.0
+  },
+  "note": "Action mismatches are deliberate policy differences: strict routing hands off bugs, billing, feature requests, and category other rather than replying or closing."
+}
