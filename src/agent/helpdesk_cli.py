@@ -97,7 +97,10 @@ def redact_display_data(value: Any) -> Any:
 def main() -> None:
     load_dotenv()
     parser = argparse.ArgumentParser(description="Run the Roosterly helpdesk agent.")
-    parser.add_argument("--out", default="logs/helpdesk_run.jsonl")
+    parser.add_argument(
+        "--out",
+        help="Override the default log path (dry run: logs/helpdesk_run.jsonl; submit: logs/submitted_run.jsonl).",
+    )
     parser.add_argument("--model")
     parser.add_argument("--limit", type=int)
     parser.add_argument(
@@ -105,10 +108,16 @@ def main() -> None:
         action="store_true",
         help="Post decisions to the helpdesk; otherwise only write a local dry-run log.",
     )
-    parser.add_argument(
+    reset_options = parser.add_mutually_exclusive_group()
+    reset_options.add_argument(
         "--reset",
         action="store_true",
         help="Re-open all practice tickets before running (requires --submit).",
+    )
+    reset_options.add_argument(
+        "--reset-only",
+        action="store_true",
+        help="Re-open all practice tickets without running the agent or submitting actions.",
     )
     parser.add_argument(
         "--eval-examples",
@@ -133,8 +142,23 @@ def main() -> None:
     args = parser.parse_args()
     if args.reset and not args.submit:
         parser.error("--reset requires --submit.")
+    if args.reset_only and (
+        args.submit
+        or args.eval_examples
+        or args.limit is not None
+        or args.api_status
+        or args.ticket_id
+        or args.show_examples
+    ):
+        parser.error(
+            "--reset-only cannot be combined with submission, run, eval, or inspection options."
+        )
     if (args.api_status or args.ticket_id or args.show_examples) and (
-        args.submit or args.reset or args.eval_examples or args.limit is not None
+        args.submit
+        or args.reset
+        or args.reset_only
+        or args.eval_examples
+        or args.limit is not None
     ):
         parser.error("API inspection options cannot be combined with run or eval options.")
 
@@ -148,6 +172,10 @@ def main() -> None:
         parser.error(str(exc))
 
     try:
+        if args.reset_only:
+            client.reset_practice()
+            print("Practice tickets reset.")
+            return
         if args.api_status:
             status = client.get_status()
             print(
@@ -173,7 +201,10 @@ def main() -> None:
             return
 
         model = args.model or os.getenv("TICKET_AGENT_MODEL", DEFAULT_MODEL)
-        agent = HelpdeskAgent(client, JsonlLogger(args.out), model)
+        out_path = args.out or (
+            "logs/submitted_run.jsonl" if args.submit else "logs/helpdesk_run.jsonl"
+        )
+        agent = HelpdeskAgent(client, JsonlLogger(out_path), model)
         if args.eval_examples:
             print("Fetching labelled examples from GET /examples...", flush=True)
             examples = client.get_examples()
@@ -226,7 +257,7 @@ def main() -> None:
                     else None
                 ),
                 "submitted": args.submit,
-                "log": args.out,
+                "log": out_path,
             },
             indent=2,
         )
