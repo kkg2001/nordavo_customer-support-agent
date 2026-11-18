@@ -32,7 +32,7 @@ Get-Content .\logs\helpdesk_run.jsonl -Tail 5
 
 ## Reliability
 
-GET retries 429 via `Retry-After` and 503 with backoff. POST is not retried; 409 means already handled. Decisions append to JSONL. After a crash, rerun: handled tickets are omitted or return 409; ambiguous POST failures are logged for review. Ticket text is untrusted, card/IBAN patterns are redacted, `.env` is ignored, and raw bodies are not logged.
+The client serializes requests at 0.21-second minimum intervals (under five calls/second). It retries 429 using `Retry-After` and random 503s with bounded backoff, including POST actions; if a retry finds the ticket already answered, the API's 409 is recorded as `already_handled` rather than retried. Other 4xx responses fail explicitly. Requests with ambiguous network failures on POST are not retried; they are logged for review. Decisions append to JSONL, so after a crash rerun: handled tickets are omitted or return 409. Ticket text is untrusted, card/IBAN patterns are redacted, `.env` is ignored, and raw bodies are not logged.
 
 ## Eval and fix
 

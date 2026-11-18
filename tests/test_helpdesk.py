@@ -445,26 +445,83 @@ def test_503_retries_after_backoff_and_uses_required_headers():
     assert 0 in delays
 
 
-@pytest.mark.parametrize(
-    "status,code",
-    [(429, "rate_limited"), (503, "service_unavailable")],
-)
-def test_transient_http_errors_do_not_retry_post_actions(status, code):
+def test_503_submission_retries_and_succeeds():
+    calls = []
+    delays = []
+
+    def opener(request, timeout):
+        calls.append(request)
+        if len(calls) == 1:
+            raise api_error(503, "service_unavailable")
+        return FakeResponse(b"{}")
+
+    client = HelpdeskClient(
+        "key", "candidate@example.com", opener=opener, sleep=delays.append
+    )
+    client.submit("T1", decide_helpdesk(ticket(), triage()))
+
+    assert len(calls) == 2
+    assert all(call.get_method() == "POST" for call in calls)
+    assert 0.5 in delays
+
+
+def test_503_submission_retry_treats_followup_409_as_already_handled():
     calls = []
 
     def opener(request, timeout):
         calls.append(request)
-        raise api_error(status, code, 0)
+        if len(calls) == 1:
+            raise api_error(503, "service_unavailable")
+        raise api_error(409, "already_handled")
 
     client = HelpdeskClient(
         "key", "candidate@example.com", opener=opener, sleep=lambda _: None
     )
-    with pytest.raises(HelpdeskApiError) as error:
+    with pytest.raises(AlreadyHandledError):
         client.submit("T1", decide_helpdesk(ticket(), triage()))
 
-    assert error.value.status == status
-    assert len(calls) == 1
-    assert calls[0].get_method() == "POST"
+    assert len(calls) == 2
+
+
+def test_503_retry_stops_at_configured_limit():
+    calls = []
+
+    def opener(request, timeout):
+        calls.append(request)
+        raise api_error(503, "service_unavailable")
+
+    client = HelpdeskClient(
+        "key",
+        "candidate@example.com",
+        opener=opener,
+        sleep=lambda _: None,
+        max_retries=2,
+    )
+    with pytest.raises(HelpdeskApiError) as error:
+        client.list_tickets()
+
+    assert error.value.status == 503
+    assert error.value.code == "service_unavailable"
+    assert len(calls) == 3
+
+
+def test_429_submission_waits_for_retry_after_then_retries():
+    calls = []
+    delays = []
+
+    def opener(request, timeout):
+        calls.append(request)
+        if len(calls) == 1:
+            raise api_error(429, "rate_limited", 2)
+        return FakeResponse(b"{}")
+
+    client = HelpdeskClient(
+        "key", "candidate@example.com", opener=opener, sleep=delays.append
+    )
+    client.submit("T1", decide_helpdesk(ticket(), triage()))
+
+    assert len(calls) == 2
+    assert 2.0 in delays
 
 
 def test_429_waits_for_retry_after_before_retrying():
@@ -496,6 +553,54 @@ def test_409_is_not_retried():
     with pytest.raises(AlreadyHandledError):
         client.submit("T1", decide_helpdesk(ticket(), triage()))
     assert len(calls) == 1
+
+
+def test_already_answered_ticket_is_recorded_as_already_handled(monkeypatch):
+    records = []
+    logger = type("Logger", (), {"log": lambda self, record: records.append(record)})()
+
+    class Client:
+        def submit(self, ticket_id, decision):
+            raise AlreadyHandledError()
+
+    agent = HelpdeskAgent(client=Client(), logger=logger)
+    monkeypatch.setattr(
+        helpdesk_module,
+        "call_structured",
+        lambda system, user, schema, model: (triage(), Usage()),
+    )
+
+    result = agent.process_ticket(ticket(), submit=True)
+
+    assert result["submission_status"] == "already_handled"
+    assert result["submitted_action"] is None
+    assert records[0]["submission_status"] == "already_handled"
+
+
+def test_rate_limiter_keeps_requests_at_or_below_five_per_second(monkeypatch):
+    clock = [100.0]
+    request_times = []
+
+    def fake_sleep(delay):
+        clock[0] += delay
+
+    def opener(request, timeout):
+        request_times.append(clock[0])
+        return FakeResponse(b'{"mode":"practice"}')
+
+    monkeypatch.setattr(helpdesk_module.time, "monotonic", lambda: clock[0])
+    client = HelpdeskClient(
+        "key",
+        "candidate@example.com",
+        opener=opener,
+        sleep=fake_sleep,
+    )
+    for _ in range(6):
+        client.get_status()
+
+    gaps = [later - earlier for earlier, later in zip(request_times, request_times[1:])]
+    assert len(request_times) == 6
+    assert all(gap >= 0.2 for gap in gaps)
 
 
 def test_nonretryable_api_error_preserves_status_and_error_code():

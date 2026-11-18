@@ -5,8 +5,11 @@ import json
 import re
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from enum import Enum
 from pathlib import Path
+from threading import Lock
 from typing import Any, Callable, Literal
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
@@ -374,7 +377,15 @@ def _decision_reason(triage: HelpdeskTriage, action: Action, route_reason: str) 
 
 
 class HelpdeskClient:
-    def __init__(self,api_key: str,candidate_email: str,base_url: str = DEFAULT_HELPDESK_URL,opener: Callable = urlopen,sleep: Callable[[float], None] = time.sleep,max_retries: int = RETRY_LIMIT):   
+    def __init__(
+        self,
+        api_key: str,
+        candidate_email: str,
+        base_url: str = DEFAULT_HELPDESK_URL,
+        opener: Callable = urlopen,
+        sleep: Callable[[float], None] = time.sleep,
+        max_retries: int = RETRY_LIMIT,
+    ):
         if not api_key or not candidate_email:
             raise ValueError("HELPDESK_API_KEY and CANDIDATE_EMAIL are required.")
         self.api_key = api_key
@@ -383,13 +394,33 @@ class HelpdeskClient:
         self.opener = opener
         self.sleep = sleep
         self.max_retries = max_retries
-        self._last_request_at = 0.0
+        self._last_request_at: float | None = None
+        self._rate_limit_lock = Lock()
 
     def _wait_for_rate_limit(self) -> None:
-        elapsed = time.monotonic() - self._last_request_at
-        if self._last_request_at and elapsed < MIN_REQUEST_INTERVAL:
-            self.sleep(MIN_REQUEST_INTERVAL - elapsed)
-        self._last_request_at = time.monotonic()
+        with self._rate_limit_lock:
+            now = time.monotonic()
+            if self._last_request_at is not None:
+                delay = MIN_REQUEST_INTERVAL - (now - self._last_request_at)
+                if delay > 0:
+                    self.sleep(delay)
+            self._last_request_at = time.monotonic()
+
+    @staticmethod
+    def _retry_delay(retry_after: str | None, attempt: int) -> float:
+        fallback = min(0.5 * 2**attempt, 4)
+        if not retry_after:
+            return fallback
+        try:
+            return max(0.0, float(retry_after))
+        except ValueError:
+            try:
+                retry_at = parsedate_to_datetime(retry_after)
+            except (TypeError, ValueError, OverflowError):
+                return fallback
+            if retry_at.tzinfo is None:
+                retry_at = retry_at.replace(tzinfo=timezone.utc)
+            return max(0.0, (retry_at - datetime.now(timezone.utc)).total_seconds())
 
     def _request(self, method: str, path: str, payload: dict | None = None) -> Any:
         url = f"{self.base_url}{path}"
@@ -412,7 +443,7 @@ class HelpdeskClient:
             except HTTPError as exc:
                 if exc.code == 409:
                     raise AlreadyHandledError() from exc
-                retryable = method == "GET" and exc.code in {429, 503}
+                retryable = exc.code in {429, 503}
                 if not retryable or attempt == self.max_retries:
                     code = None
                     try:
@@ -421,11 +452,7 @@ class HelpdeskClient:
                         pass
                     raise HelpdeskApiError(exc.code, code) from exc
                 retry_after = exc.headers.get("Retry-After") if exc.headers else None
-                try:
-                    delay = max(0.0, float(retry_after)) if retry_after else min(0.5 * 2**attempt, 4)
-                except ValueError:
-                    delay = min(0.5 * 2**attempt, 4)
-                self.sleep(delay)
+                self.sleep(self._retry_delay(retry_after, attempt))
             except (TimeoutError, URLError) as exc:
                 if attempt == self.max_retries or method != "GET":
                     raise ConnectionError(f"Helpdesk {method} request failed.") from exc
