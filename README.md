@@ -8,21 +8,35 @@ Fresh clone: install dependencies, copy `.env.example` to `.env`, then set `HELP
 if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 py -m pip install -e ".[dev]"
 py -m pytest -q
-py -m agent.helpdesk_cli --api-status
-py scripts/list_tickets.py
-py scripts/list_tickets.py --status all
-py -m agent.helpdesk_cli --ticket-id T005
-py -m agent.helpdesk_cli --show-examples  # print the ten labelled examples (GET only)
+py -m agent.helpdesk_cli --api-status       # prints the current mode plus counts of open and handled tickets, along with a list of supported API endpoints
+py scripts/list_tickets.py                  # lists all the open tickets
+py scripts/list_tickets.py --status all     # lists all practice tickets, not just open ones,
+py -m agent.helpdesk_cli --ticket-id T005   # fetches status details for ticket T005
+py -m agent.helpdesk_cli --show-examples    # print the ten labelled examples (GET only)
 py -m agent.helpdesk_cli                    # all open tickets; dry run
 py -m agent.helpdesk_cli --limit 1          # one-ticket demo; dry run
 py -m agent.helpdesk_cli --limit 1 --submit # post for first open ticket
 py -m agent.helpdesk_cli --submit           # post for all open tickets
 py -m agent.helpdesk_cli --eval-examples    # evaluate ten labelled examples; no submission
+py -m agent.helpdesk_cli --reset-only       # reopen practice tickets; no ticket actions
 py -m agent.helpdesk_cli --submit --reset   # final run: reset, then submit practice tickets
 Get-Content .\logs\helpdesk_run.jsonl -Tail 5
+Get-Content .\logs\submitted_run.jsonl -Tail 5
 ```
 
-`--submit` performs real actions and sends replies. `--submit --reset` resets practice tickets first. Logs contain one record per ticket, not its body.
+Dry runs write to `logs/helpdesk_run.jsonl`; `--submit` writes to `logs/submitted_run.jsonl`. Use `--out <path>` to override either default. `--reset-only` reopens all practice tickets and exits without submitting actions. `--submit` performs real actions and sends replies; `--submit --reset` resets practice tickets first, then processes them. Logs contain one record per ticket, not its body.
+
+Example output (ticket counts and costs vary):
+
+```text
+Dry run:
+[T001] language=nl category=question priority=P4 priority_reason="General password reset question." action=reply triage_status=succeeded submitted_action=- submission_status=dry_run
+Summary: "submitted": false, "log": "logs/helpdesk_run.jsonl"
+
+Submit:
+[T001] language=nl category=question priority=P4 priority_reason="General password reset question." action=reply triage_status=succeeded submitted_action=reply submission_status=submitted
+Summary: "submitted": true, "log": "logs/submitted_run.jsonl"
+```
 
 ## Decisions
 
@@ -36,9 +50,24 @@ The client serializes requests at 0.21-second minimum intervals (under five call
 
 ## Eval and fix
 
-The fix tightened billing/escalation rules, FAQ-topic matching, and localized FAQ replies. Before: category 90%, priority 100%, action 90%, language 100%. After (10 `GET /examples` labels): category 100%, priority 100%, action 50%, language 100%. Action mismatches E01/E02/E05/E07/E08 reflect safety-policy handoffs where labels expect replies or spam closure.
+Before the latest fix, the official 10-example eval scored category 100%, priority 100%, action 50%, and language 100%; a Dutch status question containing “storing” was incorrectly handed off (focused case: 0/1). The fix stopped treating that word alone as an active outage while preserving escalation for explicit outage reports. Afterward, the focused case replied with the F11 status-page answer (1/1). The official score remained 100% / 100% / 50% / 100% because that case is not in the API's ten examples; the action mismatches are deliberate policy handoffs.
 
-Cost: `$0.035538 / 10 * 100 = $0.35538`, or **$0.3554 per 100 tickets** (15,833 input and 3,941 output tokens). The eval uses the API's labels; the model does not write them.
+Latest official eval output:
+
+```json
+{
+  "examples": 10,
+  "correct": {"category": 10, "priority": 10, "action": 5, "language": 10},
+  "accuracy": {"category": 1.0, "priority": 1.0, "action": 0.5, "language": 1.0},
+  "failures": ["E01", "E02", "E05", "E07", "E08"],
+  "input_tokens": 15833,
+  "output_tokens": 4221,
+  "total_cost_usd": 0.036938,
+  "cost_per_100_examples_usd": 0.3694
+}
+```
+
+Cost per 100 tickets: `$0.036938 / 10 * 100 = $0.36938` (about **$0.3694**). Eval labels come from the API, not the model.
 
 ## What I would improve
 
